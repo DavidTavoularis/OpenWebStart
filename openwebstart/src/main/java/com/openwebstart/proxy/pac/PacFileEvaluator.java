@@ -50,9 +50,11 @@ import net.sourceforge.jnlp.runtime.JNLPRuntime;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.Proxy;
 import java.net.SocketPermission;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.AccessControlContext;
 import java.security.AccessController;
@@ -117,11 +119,19 @@ public class PacFileEvaluator {
         if (cachedResult != null) {
             return cachedResult;
         }
+        // need to open PAC URL without Proxy, otherwise it will call getProxies and throw StackOverflowError after a while
+        // It is not possible to directly compare uri and pacUrl, so comparing only their hostnames
+        // pacUrl: https://proxy-auto-config.com/proxy.pac
+        // uri: socket://proxy-auto-config.com:443
+        if (pacUrl.getHost().equals(uri.getHost())) {
+            return null;
+        }
         // pacUrl.openConnection() must not be called in constructor, otherwise it will initialize HttpURLConnection.userAgent
         // before System.setProperty(HTTP_AGENT, httpAgent) is called in net.sourceforge.jnlp.JNLPFile
         if (pacContents == null) {
             pacContents = loadPacContent();
         }
+
         final String result = getProxiesWithoutCaching(uri);
         LOG.debug("PAC result for url '{}' -> '{}'", uri, result);
         cache.addToCache(uri, result);
@@ -130,8 +140,7 @@ public class PacFileEvaluator {
 
     private String loadPacContent() {
         LOG.debug("Open PAC url '{}'", pacUrl);
-        // need to open PAC URL without Proxy, otherwise it will call getProxies and throw StackOverflowError after a while
-        try (final InputStream inputStream = pacUrl.openConnection(Proxy.NO_PROXY).getInputStream()) {
+        try (final InputStream inputStream = pacUrl.openStream()) {
             //PAC supports ASCII and new versions support UTF-8 -> https://en.wikipedia.org/wiki/Proxy_auto-config#PAC_Character-Encoding
             return IOUtils.readContentAsUtf8String(inputStream);
         }
